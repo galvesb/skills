@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gui-skill"
+version = "0.1.0"
+description = "Gerenciador de skills para Claude Code"
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.12",
+    "requests>=2.31",
+    "rich>=13.0",
+]
+
+[project.scripts]
+gui-skill = "gui_skill.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gui_skill"]
