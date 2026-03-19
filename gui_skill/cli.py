@@ -1,3 +1,5 @@
+import json
+import shutil
 import typer
 import requests
 from pathlib import Path
@@ -42,12 +44,45 @@ def _download_skill(category: str, filename: str) -> str:
     return resp.text
 
 
+def _install_hook(claude_dir: Path) -> None:
+    """Copia o hook script e registra em settings.local.json."""
+    hook_src = Path(__file__).parent / "hook.py"
+    hook_dst = claude_dir / "skills_hook.py"
+    shutil.copy2(hook_src, hook_dst)
+
+    settings_path = claude_dir / "settings.local.json"
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except Exception:
+            settings = {}
+
+    hook_command = f"python {hook_dst.absolute()}"
+
+    hooks = settings.setdefault("hooks", {})
+    user_prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
+
+    # Evita duplicar se já estiver configurado
+    for entry in user_prompt_hooks:
+        for h in entry.get("hooks", []):
+            if h.get("command") == hook_command:
+                return
+
+    user_prompt_hooks.append({
+        "hooks": [{"type": "command", "command": hook_command}]
+    })
+
+    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False))
+
+
 @app.command()
 def install(
     category: str = typer.Argument(..., help="Categoria de skills para instalar (ex: dev)"),
 ):
     """Instala skills de uma categoria no projeto atual."""
-    dest = Path(".claude/commands")
+    claude_dir = Path(".claude")
+    dest = claude_dir / "commands"
     dest.mkdir(parents=True, exist_ok=True)
 
     console.print(f"\n[bold]Buscando skills de '[cyan]{category}[/cyan]'...[/bold]")
@@ -63,7 +98,7 @@ def install(
             except Exception:
                 pass
         else:
-            console.print(f"[red]Erro ao buscar categoria: {e}[/red]")
+            console.print(f"[red]Erro: {e}[/red]")
         raise typer.Exit(1)
 
     if not skills:
@@ -83,10 +118,21 @@ def install(
         except Exception as e:
             console.print(f"  [red]✗ {skill} — {e}[/red]")
 
+    # Instala o hook
+    try:
+        _install_hook(claude_dir)
+        console.print(f"  ✓ hook [green]configurado[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]⚠ hook não instalado: {e}[/yellow]")
+
     console.print(
         f"\n[bold green]{len(installed)} skill(s) instalada(s)[/bold green] "
         f"em [dim]{dest}/[/dim]\n"
     )
+
+    console.print("[bold yellow]Variáveis de ambiente necessárias:[/bold yellow]")
+    console.print("  export SKILLS_GITHUB_TOKEN=<seu_token_github>")
+    console.print("  export SKILLS_PRIVATE_REPO=<owner/repo-privado>\n")
 
 
 @app.command("list")
@@ -97,7 +143,7 @@ def list_categories():
     try:
         categories = _get_categories()
     except Exception as e:
-        console.print(f"[red]Erro ao buscar categorias: {e}[/red]")
+        console.print(f"[red]Erro: {e}[/red]")
         raise typer.Exit(1)
 
     table = Table(show_header=False, box=None, padding=(0, 2))
